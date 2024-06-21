@@ -1,7 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Windows;
 
@@ -12,10 +15,12 @@ namespace CryptoServer
         private TcpListener listener;
         private Thread listenerThread;
         private List<ClientInfo> clients = new List<ClientInfo>();
+        private RSA rsa; // Server's RSA key pair
 
         public ServerWindow()
         {
             InitializeComponent();
+            rsa = RSA.Create(2048); // Generate RSA key pair with 2048 bits
             ServerIP.Text = GetLocalIPAddress();
             ServerPort.Text = "2137";
         }
@@ -67,7 +72,11 @@ namespace CryptoServer
                     string clientEndPoint = ((IPEndPoint)client.Client.RemoteEndPoint).ToString();
                     Log($"Client connected from {clientEndPoint}");
 
-                    ClientInfo clientInfo = new ClientInfo { Client = client, Aes = System.Security.Cryptography.Aes.Create(), Id = ((IPEndPoint)client.Client.RemoteEndPoint).Port.ToString() };
+                    // Send the RSA public key to the client
+                    NetworkStream stream = client.GetStream();
+                    SendRSAPublicKey(stream);
+
+                    ClientInfo clientInfo = new ClientInfo { Client = client, Aes = Aes.Create(), Id = ((IPEndPoint)client.Client.RemoteEndPoint).Port.ToString() };
                     clients.Add(clientInfo);
                     Thread clientThread = new Thread(() => HandleClient(clientInfo));
                     clientThread.Start();
@@ -77,6 +86,31 @@ namespace CryptoServer
                     break;
                 }
             }
+        }
+
+        private void SendRSAPublicKey(NetworkStream stream)
+        {
+            string publicKeyXml = rsa.ToXmlString(false); // Export public key only
+            byte[] publicKeyBytes = Encoding.UTF8.GetBytes(publicKeyXml);
+            byte[] lengthPrefix = BitConverter.GetBytes(publicKeyBytes.Length);
+            stream.Write(lengthPrefix, 0, lengthPrefix.Length);
+            stream.Write(publicKeyBytes, 0, publicKeyBytes.Length);
+            Log("Sent RSA public key to client");
+        }
+
+        private void ReceiveKeyAndIV(NetworkStream stream, Aes aes)
+        {
+            byte[] encryptedKey = new byte[256]; // RSA encrypted key size
+            stream.Read(encryptedKey, 0, encryptedKey.Length);
+            byte[] key = rsa.Decrypt(encryptedKey, RSAEncryptionPadding.Pkcs1);
+            aes.Key = key;
+
+            byte[] encryptedIv = new byte[256]; // RSA encrypted IV size
+            stream.Read(encryptedIv, 0, encryptedIv.Length);
+            byte[] iv = rsa.Decrypt(encryptedIv, RSAEncryptionPadding.Pkcs1);
+            aes.IV = iv;
+
+            Log("Received encrypted AES key and IV");
         }
 
         private void HandleClient(ClientInfo clientInfo)
@@ -127,27 +161,15 @@ namespace CryptoServer
             }
         }
 
-        private void ReceiveKeyAndIV(NetworkStream stream, System.Security.Cryptography.Aes aes)
-        {
-            byte[] key = new byte[32];
-            stream.Read(key, 0, key.Length);
-            aes.Key = key;
-
-            byte[] iv = new byte[16];
-            stream.Read(iv, 0, iv.Length);
-            aes.IV = iv;
-            Log("Received AES key and IV");
-        }
-
-        private byte[] EncryptMessage(string message, System.Security.Cryptography.Aes aes)
+        private byte[] EncryptMessage(string message, Aes aes)
         {
             using (var encryptor = aes.CreateEncryptor(aes.Key, aes.IV))
             {
                 using (var ms = new System.IO.MemoryStream())
                 {
-                    using (var cs = new System.Security.Cryptography.CryptoStream(ms, encryptor, System.Security.Cryptography.CryptoStreamMode.Write))
+                    using (var cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write))
                     {
-                        using (var sw = new System.IO.StreamWriter(cs))
+                        using (var sw = new StreamWriter(cs))
                         {
                             sw.Write(message);
                         }
@@ -157,15 +179,15 @@ namespace CryptoServer
             }
         }
 
-        private string DecryptMessage(byte[] encryptedMessage, System.Security.Cryptography.Aes aes)
+        private string DecryptMessage(byte[] encryptedMessage, Aes aes)
         {
             using (var decryptor = aes.CreateDecryptor(aes.Key, aes.IV))
             {
                 using (var ms = new System.IO.MemoryStream(encryptedMessage))
                 {
-                    using (var cs = new System.Security.Cryptography.CryptoStream(ms, decryptor, System.Security.Cryptography.CryptoStreamMode.Read))
+                    using (var cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read))
                     {
-                        using (var sr = new System.IO.StreamReader(cs))
+                        using (var sr = new StreamReader(cs))
                         {
                             return sr.ReadToEnd();
                         }
@@ -233,7 +255,7 @@ namespace CryptoServer
     public class ClientInfo
     {
         public TcpClient Client { get; set; }
-        public System.Security.Cryptography.Aes Aes { get; set; }
+        public Aes Aes { get; set; }
         public string Id { get; set; }
     }
 }

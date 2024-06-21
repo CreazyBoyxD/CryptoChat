@@ -14,7 +14,7 @@ namespace CryptoChat
         private TcpClient client;
         private NetworkStream stream;
         private Aes aes;
-        private RSA rsa;
+        private RSA serverRsa; // Server's RSA public key
         private Thread listener;
         private bool isListening;
 
@@ -22,7 +22,8 @@ namespace CryptoChat
         {
             InitializeComponent();
             aes = Aes.Create();
-            rsa = RSA.Create();
+            aes.KeySize = 128; // Set AES key size to 128 bits (16 bytes)
+            serverRsa = RSA.Create();
         }
 
         private void ConnectButton_Click(object sender, RoutedEventArgs e)
@@ -32,6 +33,9 @@ namespace CryptoChat
                 client = new TcpClient(ServerIP.Text, int.Parse(ServerPort.Text));
                 stream = client.GetStream();
                 ChatHistory.AppendText("Connected to server.\n");
+
+                // Receive RSA public key from the server
+                ReceiveRSAPublicKey();
 
                 // Send AES key and IV to the server
                 SendKeyAndIV();
@@ -58,13 +62,31 @@ namespace CryptoChat
             }
         }
 
+        private void ReceiveRSAPublicKey()
+        {
+            byte[] lengthPrefix = new byte[4];
+            stream.Read(lengthPrefix, 0, lengthPrefix.Length);
+            int keyLength = BitConverter.ToInt32(lengthPrefix, 0);
+            byte[] publicKeyBytes = new byte[keyLength];
+            stream.Read(publicKeyBytes, 0, publicKeyBytes.Length);
+            string publicKeyXml = Encoding.UTF8.GetString(publicKeyBytes);
+            serverRsa.FromXmlString(publicKeyXml);
+            ChatHistory.AppendText("Received RSA public key from server.\n");
+        }
+
         private void SendKeyAndIV()
         {
             byte[] key = aes.Key;
             byte[] iv = aes.IV;
-            stream.Write(key, 0, key.Length);
-            stream.Write(iv, 0, iv.Length);
-            Console.WriteLine("Sent AES key and IV");
+
+            // Encrypt AES key and IV with server's public RSA key using Pkcs1 padding
+            byte[] encryptedKey = serverRsa.Encrypt(key, RSAEncryptionPadding.Pkcs1);
+            byte[] encryptedIv = serverRsa.Encrypt(iv, RSAEncryptionPadding.Pkcs1);
+
+            // Send encrypted AES key and IV
+            stream.Write(encryptedKey, 0, encryptedKey.Length);
+            stream.Write(encryptedIv, 0, encryptedIv.Length);
+            Console.WriteLine("Sent encrypted AES key and IV");
         }
 
         private void SendButton_Click(object sender, RoutedEventArgs e)
@@ -149,7 +171,7 @@ namespace CryptoChat
             }
             catch (Exception ex)
             {
-                if (isListening) // Log the error only if we are still supposed to be listening
+                if (isListening)
                 {
                     Dispatcher.Invoke(() => ChatHistory.AppendText($"Error: {ex.Message}\n"));
                 }
