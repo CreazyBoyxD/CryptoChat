@@ -15,12 +15,12 @@ namespace CryptoServer
         private TcpListener listener;
         private Thread listenerThread;
         private List<ClientInfo> clients = new List<ClientInfo>();
-        private RSA rsa; // Server's RSA key pair
+        private RSA rsa;
 
         public ServerWindow()
         {
             InitializeComponent();
-            rsa = RSA.Create(2048); // Generate RSA key pair with 2048 bits
+            rsa = RSA.Create(2048);
             ServerIP.Text = GetLocalIPAddress();
             ServerPort.Text = "2137";
         }

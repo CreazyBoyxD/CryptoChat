@@ -7,7 +7,7 @@
             <ColumnDefinition Width="275"/>
             <ColumnDefinition/>
         </Grid.ColumnDefinitions>
-        <TextBlock Text="Crypto Server" FontWeight="Bold" FontSize="30" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="40,50,40,340"/>
+        <TextBlock Text="Crypto Server" FontWeight="Bold" FontSize="30" HorizontalAlignment="Center" VerticalAlignment="Top" Height="58" Margin="0,35,0,0"/>
         <StackPanel VerticalAlignment="Top" HorizontalAlignment="Center" Height="228" Width="230" Margin="0,140,0,0">
             <TextBlock Text="Server IP:" FontWeight="Bold" Margin="10"/>
             <TextBox Name="ServerIP" Width="180" IsReadOnly="True" Margin="10"/>

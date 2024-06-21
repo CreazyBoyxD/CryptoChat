@@ -14,7 +14,7 @@ namespace CryptoChat
         private TcpClient client;
         private NetworkStream stream;
         private Aes aes;
-        private RSA serverRsa; // Server's RSA public key
+        private RSA serverRsa;
         private Thread listener;
         private bool isListening;
 
@@ -22,7 +22,7 @@ namespace CryptoChat
         {
             InitializeComponent();
             aes = Aes.Create();
-            aes.KeySize = 128; // Set AES key size to 128 bits (16 bytes)
+            aes.KeySize = 128;
             serverRsa = RSA.Create();
         }
 
@@ -33,6 +33,9 @@ namespace CryptoChat
                 client = new TcpClient(ServerIP.Text, int.Parse(ServerPort.Text));
                 stream = client.GetStream();
                 ChatHistory.AppendText("Connected to server.\n");
+
+                ConnectButton.IsEnabled = false;
+                DisconnectButton.IsEnabled = true;
 
                 // Receive RSA public key from the server
                 ReceiveRSAPublicKey();
@@ -59,6 +62,9 @@ namespace CryptoChat
                 isListening = false;
                 client.Close();
                 ChatHistory.AppendText("Disconnected from server.\n");
+
+                ConnectButton.IsEnabled = true;
+                DisconnectButton.IsEnabled = false;
             }
         }
 
