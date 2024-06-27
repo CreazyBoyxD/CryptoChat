@@ -1,38 +1,74 @@
 # CryptoChat
 
-CryptoChat is a secure chat application that uses AES encryption to ensure the privacy and security of messages exchanged between clients and a server.
+CryptoChat is a secure chat application using AES for message encryption and RSA for secure key exchange. This project consists of two main components: the client and the server, both implemented in C# using WPF for the GUI.
 
 ## Features
 
-- **AES Encryption**: All messages are encrypted using the AES encryption standard to ensure secure communication.
-- **Real-time Messaging**: Clients can send and receive messages in real-time.
-- **Multiple Clients**: The server can handle multiple client connections simultaneously.
-- **Connection Status Indicator**: The client application shows the connection status to the server.
+- Secure communication using AES-128 for message encryption.
+- RSA encryption for secure exchange of AES keys.
+- Multi-client support on the server.
+- Simple GUI for both client and server.
 
 ## Getting Started
 
 ### Prerequisites
 
-- .NET Framework or .NET Core
-- Visual Studio or any compatible C# IDE
+- .NET Framework
+- Visual Studio or any other C# IDE
 
-### Running the Server
+### Clone the Repository
 
-1. Open the `CryptoServer` project in Visual Studio.
-2. Build the project.
-3. Run the `ServerWindow.xaml`.
+git clone https://github.com/CreazyBoyxD/CryptoChat.git
 
-### Running the Client
+cd CryptoChat
 
-1. Open the `CryptoChat` project in Visual Studio.
-2. Build the project.
-3. Run the `ClientWindow.xaml`.
+### Open the Project
 
-### Usage
+Open the solution file `CryptoChat.sln` in Visual Studio.
 
-1. Start the server application.
-2. Start the client application.
-3. Enter the server IP and port in the client application.
-4. Click `Connect` to connect to the server.
-5. Enter your message in the `MessageBox` and click `Send` or press `Enter` to send the message.
-6. The server will broadcast the message to all connected clients.
+### Build and Run
+
+1. **Server:**
+   1. Set the `CryptoServer` project as the startup project.
+   1. Build and run the server.
+   1. The server's IP address and port will be displayed. You can modify the port if needed.
+1. **Client:**
+   1. Set the `CryptoChat` project as the startup project.
+   1. Build and run the client.
+   1. Enter the server's IP address and port.
+   1. Click "Connect" to establish a connection with the server.
+
+## How It Works
+
+### RSA Key Exchange
+
+- The server generates an RSA key pair (public and private keys).
+- The server sends the RSA public key to the client.
+- The client uses the RSA public key to encrypt its AES key and IV.
+- The server decrypts the AES key and IV using its RSA private key.
+
+### AES Message Encryption
+
+- After the key exchange, the client and server use AES-128 for encrypting and decrypting messages.
+- Messages are encrypted on the client side before being sent to the server.
+- The server decrypts the received messages and can broadcast them to other connected clients.
+
+## Code Overview
+
+### Client
+
+- `ClientWindow.xaml.cs`:
+  - Establishes connection to the server.
+  - Receives the RSA public key.
+  - Sends the encrypted AES key and IV.
+  - Encrypts and sends messages using AES.
+  - Listens for incoming messages from the server and decrypts them.
+
+### Server
+
+- `ServerWindow.xaml.cs`:
+  - Listens for incoming client connections.
+  - Sends the RSA public key to the client.
+  - Receives the encrypted AES key and IV from the client.
+  - Decrypts and stores the AES key and IV.
+  - Handles incoming messages from clients, decrypts them, and broadcasts them to other clients.
