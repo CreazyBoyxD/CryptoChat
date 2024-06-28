@@ -4,7 +4,7 @@ CryptoChat is a secure chat application using AES for message encryption and RSA
 
 ## Features
 
-- Secure communication using AES-128 for message encryption.
+- Secure communication using AES-256 for message encryption.
 - RSA encryption for secure exchange of AES keys.
 - Multi-client support on the server.
 - Simple GUI for both client and server.
