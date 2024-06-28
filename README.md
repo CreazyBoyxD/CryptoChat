@@ -30,13 +30,13 @@ Open the solution file `CryptoChat.sln` in Visual Studio.
 
 1. **Server:**
    1. Set the `CryptoServer` project as the startup project.
-   1. Build and run the server.
-   1. The server's IP address and port will be displayed. You can modify the port if needed.
+   2. Build and run the server.
+   3. The server's IP address and port will be displayed. You can modify the port if needed.
 1. **Client:**
    1. Set the `CryptoChat` project as the startup project.
-   1. Build and run the client.
-   1. Enter the server's IP address and port.
-   1. Click "Connect" to establish a connection with the server.
+   2. Build and run the client.
+   3. Enter the server's IP address and port.
+   4. Click "Connect" to establish a connection with the server.
 
 ## How It Works
 
@@ -49,7 +49,7 @@ Open the solution file `CryptoChat.sln` in Visual Studio.
 
 ### AES Message Encryption
 
-- After the key exchange, the client and server use AES-128 for encrypting and decrypting messages.
+- After the key exchange, the client and server use AES-256 for encrypting and decrypting messages.
 - Messages are encrypted on the client side before being sent to the server.
 - The server decrypts the received messages and can broadcast them to other connected clients.
 
