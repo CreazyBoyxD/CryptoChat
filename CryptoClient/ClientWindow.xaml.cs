@@ -22,7 +22,7 @@ namespace CryptoChat
         {
             InitializeComponent(); // Inicjalizacja komponentów GUI
             aes = Aes.Create(); // Utworzenie instancji AES
-            aes.KeySize = 128; // Ustawienie rozmiaru klucza AES na 128 bitów
+            aes.KeySize = 256; // Ustawienie rozmiaru klucza AES na 256 bitów
             serverRsa = RSA.Create(); // Utworzenie instancji RSA
         }
 
