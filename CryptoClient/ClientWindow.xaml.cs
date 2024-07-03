@@ -14,7 +14,10 @@ namespace CryptoChat
         private TcpClient client; // Klient TCP do połączenia z serwerem
         private NetworkStream stream; // Strumień sieciowy do przesyłania danych
         private Aes aes; // AES do szyfrowania i deszyfrowania wiadomości
-        private RSA serverRsa; // RSA do szyfrowania klucza AES i IV
+        private ECDiffieHellmanCng diffieHellman; // Diffie-Hellman do wymiany klucza AES
+        private RSA rsa; // RSA do podpisywania wiadomości
+        private RSA serverRsa; // RSA do weryfikacji podpisów serwera
+        private byte[] serverPublicKey; // Klucz publiczny serwera do Diffie-Hellmana
         private Thread listener; // Wątek do nasłuchiwania wiadomości od serwera
         private bool isListening; // Flaga określająca, czy klient nasłuchuje wiadomości
 
@@ -23,7 +26,11 @@ namespace CryptoChat
             InitializeComponent(); // Inicjalizacja komponentów GUI
             aes = Aes.Create(); // Utworzenie instancji AES
             aes.KeySize = 256; // Ustawienie rozmiaru klucza AES na 256 bitów
-            serverRsa = RSA.Create(); // Utworzenie instancji RSA
+            diffieHellman = new ECDiffieHellmanCng(); // Utworzenie instancji Diffie-Hellmana
+            diffieHellman.KeyDerivationFunction = ECDiffieHellmanKeyDerivationFunction.Hash;
+            diffieHellman.HashAlgorithm = CngAlgorithm.Sha256;
+            rsa = RSA.Create(); // Utworzenie instancji RSA
+            serverRsa = RSA.Create(); // Utworzenie instancji RSA do weryfikacji podpisów
         }
 
         private void ConnectButton_Click(object sender, RoutedEventArgs e)
@@ -37,8 +44,15 @@ namespace CryptoChat
                 ConnectButton.IsEnabled = false; // Wyłączenie przycisku "Connect"
                 DisconnectButton.IsEnabled = true; // Włączenie przycisku "Disconnect"
 
-                ReceiveRSAPublicKey(); // Odbiór klucza publicznego RSA od serwera
-                SendKeyAndIV(); // Wysłanie klucza AES i IV do serwera
+                SendPublicKey(); // Wysłanie klucza publicznego Diffie-Hellmana do serwera
+                ReceivePublicKey(); // Odbiór klucza publicznego serwera
+
+                SendClientRsaPublicKey(); // Wysłanie klucza publicznego RSA klienta do serwera
+
+                // Wygenerowanie wspólnego sekretu i użycie go do utworzenia klucza AES
+                byte[] sharedSecret = diffieHellman.DeriveKeyMaterial(CngKey.Import(serverPublicKey, CngKeyBlobFormat.EccPublicBlob));
+                aes.Key = sharedSecret;
+                aes.IV = new byte[aes.BlockSize / 8]; // Można zmodyfikować, aby lepiej zabezpieczyć IV
 
                 isListening = true; // Ustawienie flagi nasłuchiwania na true
                 listener = new Thread(ListenForMessages); // Utworzenie wątku do nasłuchiwania wiadomości
@@ -64,29 +78,30 @@ namespace CryptoChat
             }
         }
 
-        private void ReceiveRSAPublicKey()
+        private void SendPublicKey()
         {
-            byte[] lengthPrefix = new byte[4]; // Bufor do przechowywania długości klucza
-            stream.Read(lengthPrefix, 0, lengthPrefix.Length); // Odczytanie długości klucza
-            int keyLength = BitConverter.ToInt32(lengthPrefix, 0); // Konwersja długości klucza do int
-            byte[] publicKeyBytes = new byte[keyLength]; // Bufor na klucz publiczny
-            stream.Read(publicKeyBytes, 0, publicKeyBytes.Length); // Odczytanie klucza publicznego
-            string publicKeyXml = Encoding.UTF8.GetString(publicKeyBytes); // Konwersja klucza publicznego do stringa
-            serverRsa.FromXmlString(publicKeyXml); // Zaimportowanie klucza publicznego do RSA
-            ChatHistory.AppendText("Received RSA public key from server.\n"); // Dodanie informacji do historii czatu
+            byte[] publicKey = diffieHellman.PublicKey.ToByteArray();
+            SendData(stream, publicKey); // Wysłanie klucza publicznego
+            ChatHistory.AppendText("Sent Diffie-Hellman public key to server.\n"); // Dodanie informacji do historii czatu
         }
 
-        private void SendKeyAndIV()
+        private void ReceivePublicKey()
         {
-            byte[] key = aes.Key; // Pobranie klucza AES
-            byte[] iv = aes.IV; // Pobranie IV AES
+            serverPublicKey = ReceiveData(stream); // Odbiór klucza publicznego serwera do Diffie-Hellmana
+            ChatHistory.AppendText($"Received Diffie-Hellman public key from server: {Convert.ToBase64String(serverPublicKey)}\n"); // Dodanie informacji do historii czatu
 
-            byte[] encryptedKey = serverRsa.Encrypt(key, RSAEncryptionPadding.Pkcs1); // Szyfrowanie klucza AES za pomocą RSA
-            byte[] encryptedIv = serverRsa.Encrypt(iv, RSAEncryptionPadding.Pkcs1); // Szyfrowanie IV za pomocą RSA
+            byte[] rsaPublicKeyBytes = ReceiveData(stream); // Odbiór klucza publicznego serwera do weryfikacji podpisów
+            string rsaPublicKeyXml = Encoding.UTF8.GetString(rsaPublicKeyBytes);
+            serverRsa.FromXmlString(rsaPublicKeyXml); // Zaimportowanie klucza publicznego RSA serwera
+            ChatHistory.AppendText($"Received RSA public key from server: {rsaPublicKeyXml}\n"); // Dodanie informacji do historii czatu
+        }
 
-            stream.Write(encryptedKey, 0, encryptedKey.Length); // Wysłanie zaszyfrowanego klucza AES
-            stream.Write(encryptedIv, 0, encryptedIv.Length); // Wysłanie zaszyfrowanego IV
-            Console.WriteLine("Sent encrypted AES key and IV"); // Informacja o wysłaniu danych
+        private void SendClientRsaPublicKey()
+        {
+            string publicKeyXml = rsa.ToXmlString(false);
+            byte[] publicKeyBytes = Encoding.UTF8.GetBytes(publicKeyXml);
+            SendData(stream, publicKeyBytes); // Wysłanie klucza publicznego
+            ChatHistory.AppendText($"Sent RSA public key to server: {publicKeyXml}\n"); // Dodanie informacji do historii czatu
         }
 
         private void SendButton_Click(object sender, RoutedEventArgs e)
@@ -108,9 +123,15 @@ namespace CryptoChat
 
             string message = MessageBox.Text; // Pobranie wiadomości z pola tekstowego
             byte[] encryptedMessage = EncryptMessage(message); // Szyfrowanie wiadomości
+            byte[] hash = ComputeHash(message); // Obliczenie skrótu wiadomości
+            byte[] signature = rsa.SignHash(hash, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1); // Podpisanie skrótu
+
+            Log($"Sending message: {message}"); // Dodanie logu wysyłanej wiadomości
+            Log($"Sending signature: {Convert.ToBase64String(signature)}"); // Dodanie logu podpisu
+            Log($"Computed hash: {Convert.ToBase64String(hash)}"); // Dodanie logu obliczonego hasha
 
             SendData(stream, encryptedMessage); // Wysłanie zaszyfrowanej wiadomości
-            Console.WriteLine($"Sent encrypted message of length {encryptedMessage.Length}"); // Informacja o wysłaniu wiadomości
+            SendData(stream, signature); // Wysłanie podpisu
 
             ChatHistory.AppendText($"You: {message}\n"); // Dodanie wiadomości do historii czatu
             MessageBox.Clear(); // Wyczyść pole tekstowe
@@ -158,15 +179,29 @@ namespace CryptoChat
                 while (isListening)
                 {
                     byte[] encryptedMessage = ReceiveData(stream); // Odbieranie zaszyfrowanej wiadomości
-                    if (encryptedMessage == null)
+                    byte[] signature = ReceiveData(stream); // Odbieranie podpisu wiadomości
+
+                    if (encryptedMessage == null || signature == null)
                     {
                         break; // Zakończenie nasłuchiwania jeśli serwer rozłączył
                     }
 
-                    Console.WriteLine($"Received encrypted message of length {encryptedMessage.Length}"); // Informacja o odebranej wiadomości
-
                     string message = DecryptMessage(encryptedMessage); // Deszyfrowanie wiadomości
-                    Dispatcher.Invoke(() => ChatHistory.AppendText($"{message}\n")); // Dodanie wiadomości do historii czatu
+                    byte[] hash = ComputeHash(message); // Obliczenie skrótu wiadomości
+
+                    Log($"Received message: {message}"); // Dodanie logu otrzymanej wiadomości
+                    Log($"Received signature: {Convert.ToBase64String(signature)}"); // Dodanie logu otrzymanego podpisu
+                    Log($"Computed hash: {Convert.ToBase64String(hash)}"); // Dodanie logu obliczonego hasha
+
+                    bool isValid = serverRsa.VerifyHash(hash, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1); // Weryfikacja podpisu
+                    if (isValid)
+                    {
+                        Dispatcher.Invoke(() => ChatHistory.AppendText($"Server: {message}\n")); // Dodanie wiadomości do historii czatu
+                    }
+                    else
+                    {
+                        Dispatcher.Invoke(() => ChatHistory.AppendText("Received message with invalid signature.\n")); // Informacja o błędnym podpisie
+                    }
                 }
             }
             catch (Exception ex)
@@ -178,10 +213,17 @@ namespace CryptoChat
             }
         }
 
+        private byte[] ComputeHash(string message)
+        {
+            using (SHA256 sha256 = SHA256.Create())
+            {
+                return sha256.ComputeHash(Encoding.UTF8.GetBytes(message));
+            }
+        }
+
         private void SendData(NetworkStream stream, byte[] data)
         {
             byte[] lengthPrefix = BitConverter.GetBytes(data.Length); // Dodanie prefiksu długości wiadomości
-            Console.WriteLine($"Sending message of length {data.Length}"); // Informacja o wysyłanej wiadomości
             stream.Write(lengthPrefix, 0, lengthPrefix.Length); // Wysłanie prefiksu długości
             stream.Write(data, 0, data.Length); // Wysłanie zaszyfrowanej wiadomości
         }
@@ -196,7 +238,6 @@ namespace CryptoChat
             }
 
             int messageLength = BitConverter.ToInt32(lengthPrefix, 0); // Konwersja prefiksu do int
-            Console.WriteLine($"Expecting message of length {messageLength}"); // Informacja o oczekiwanej długości wiadomości
             byte[] buffer = new byte[messageLength]; // Bufor na wiadomość
             bytesRead = 0;
 
@@ -211,6 +252,15 @@ namespace CryptoChat
             }
 
             return buffer; // Zwrócenie odebranej wiadomości
+        }
+
+        private void Log(string message)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                ChatHistory.AppendText($"{DateTime.Now}: {message}\n"); // Dodanie wiadomości do logu
+                ChatHistory.ScrollToEnd(); // Przewinięcie logu do końca
+            });
         }
     }
 }

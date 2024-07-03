@@ -15,12 +15,16 @@ namespace CryptoServer
         private TcpListener listener; // Nasłuchiwacz TCP do akceptowania połączeń
         private Thread listenerThread; // Wątek do nasłuchiwania połączeń
         private List<ClientInfo> clients = new List<ClientInfo>(); // Lista połączonych klientów
-        private RSA rsa; // RSA do szyfrowania klucza AES i IV
+        private ECDiffieHellmanCng diffieHellman; // Diffie-Hellman do wymiany klucza AES
+        private RSA rsa; // RSA do podpisywania wiadomości
 
         public ServerWindow()
         {
             InitializeComponent(); // Inicjalizacja komponentów GUI
-            rsa = RSA.Create(2048); // Utworzenie instancji RSA z kluczem 2048 bitów
+            diffieHellman = new ECDiffieHellmanCng(); // Utworzenie instancji Diffie-Hellmana
+            diffieHellman.KeyDerivationFunction = ECDiffieHellmanKeyDerivationFunction.Hash;
+            diffieHellman.HashAlgorithm = CngAlgorithm.Sha256;
+            rsa = RSA.Create(); // Utworzenie instancji RSA
             ServerIP.Text = GetLocalIPAddress(); // Wyświetlenie lokalnego adresu IP
             ServerPort.Text = "2137"; // Ustawienie domyślnego portu serwera
         }
@@ -73,10 +77,14 @@ namespace CryptoServer
                     Log($"Client connected from {clientEndPoint}"); // Dodanie informacji do logu
 
                     NetworkStream stream = client.GetStream(); // Uzyskanie strumienia sieciowego
-                    SendRSAPublicKey(stream); // Wysłanie klucza publicznego RSA do klienta
-
                     ClientInfo clientInfo = new ClientInfo { Client = client, Aes = Aes.Create(), Id = ((IPEndPoint)client.Client.RemoteEndPoint).Port.ToString() }; // Utworzenie informacji o kliencie
                     clients.Add(clientInfo); // Dodanie klienta do listy klientów
+
+                    SendPublicKey(stream); // Wysłanie klucza publicznego Diffie-Hellmana do klienta
+                    ReceivePublicKey(stream, clientInfo); // Odbiór klucza publicznego klienta i wygenerowanie wspólnego sekretu
+                    SendRSAPublicKey(stream); // Wysłanie klucza publicznego RSA do klienta
+                    ReceiveClientRsaPublicKey(stream, clientInfo); // Odbiór klucza publicznego RSA klienta
+
                     Thread clientThread = new Thread(() => HandleClient(clientInfo)); // Utworzenie wątku do obsługi klienta
                     clientThread.Start(); // Uruchomienie wątku
                 }
@@ -87,51 +95,78 @@ namespace CryptoServer
             }
         }
 
+        private void SendPublicKey(NetworkStream stream)
+        {
+            byte[] publicKey = diffieHellman.PublicKey.ToByteArray();
+            SendData(stream, publicKey); // Wysłanie klucza publicznego
+            Log("Sent Diffie-Hellman public key to client"); // Dodanie informacji do logu
+        }
+
+        private void ReceivePublicKey(NetworkStream stream, ClientInfo clientInfo)
+        {
+            byte[] clientPublicKey = ReceiveData(stream); // Odbiór klucza publicznego klienta
+
+            // Wygenerowanie wspólnego sekretu i użycie go do utworzenia klucza AES
+            byte[] sharedSecret = diffieHellman.DeriveKeyMaterial(CngKey.Import(clientPublicKey, CngKeyBlobFormat.EccPublicBlob));
+            clientInfo.Aes.Key = sharedSecret;
+            clientInfo.Aes.IV = new byte[clientInfo.Aes.BlockSize / 8]; // Można zmodyfikować, aby lepiej zabezpieczyć IV
+
+            Log($"Received Diffie-Hellman public key from client and generated shared secret. Client public key: {Convert.ToBase64String(clientPublicKey)}"); // Dodanie informacji do logu
+        }
+
         private void SendRSAPublicKey(NetworkStream stream)
         {
             string publicKeyXml = rsa.ToXmlString(false); // Eksportowanie tylko klucza publicznego
             byte[] publicKeyBytes = Encoding.UTF8.GetBytes(publicKeyXml); // Konwersja klucza publicznego do tablicy bajtów
-            byte[] lengthPrefix = BitConverter.GetBytes(publicKeyBytes.Length); // Dodanie prefiksu długości
-            stream.Write(lengthPrefix, 0, lengthPrefix.Length); // Wysłanie prefiksu długości
-            stream.Write(publicKeyBytes, 0, publicKeyBytes.Length); // Wysłanie klucza publicznego
-            Log("Sent RSA public key to client"); // Dodanie informacji do logu
+            SendData(stream, publicKeyBytes); // Wysłanie klucza publicznego
+            Log($"Sent RSA public key to client: {publicKeyXml}"); // Dodanie informacji do logu
         }
 
-        private void ReceiveKeyAndIV(NetworkStream stream, Aes aes)
+        private void ReceiveClientRsaPublicKey(NetworkStream stream, ClientInfo clientInfo)
         {
-            byte[] encryptedKey = new byte[256]; // Bufor na zaszyfrowany klucz AES
-            stream.Read(encryptedKey, 0, encryptedKey.Length); // Odczytanie zaszyfrowanego klucza AES
-            byte[] key = rsa.Decrypt(encryptedKey, RSAEncryptionPadding.Pkcs1); // Odszyfrowanie klucza AES
-            aes.Key = key; // Ustawienie klucza AES
-
-            byte[] encryptedIv = new byte[256]; // Bufor na zaszyfrowane IV AES
-            stream.Read(encryptedIv, 0, encryptedIv.Length); // Odczytanie zaszyfrowanego IV
-            byte[] iv = rsa.Decrypt(encryptedIv, RSAEncryptionPadding.Pkcs1); // Odszyfrowanie IV
-            aes.IV = iv; // Ustawienie IV AES
-
-            Log("Received encrypted AES key and IV"); // Dodanie informacji do logu
+            byte[] rsaPublicKeyBytes = ReceiveData(stream); // Odbiór klucza publicznego klienta
+            string rsaPublicKeyXml = Encoding.UTF8.GetString(rsaPublicKeyBytes);
+            clientInfo.ClientRsa = RSA.Create();
+            clientInfo.ClientRsa.FromXmlString(rsaPublicKeyXml); // Zaimportowanie klucza publicznego RSA klienta
+            Log($"Received RSA public key from client: {rsaPublicKeyXml}"); // Dodanie informacji do logu
         }
 
         private void HandleClient(ClientInfo clientInfo)
         {
             TcpClient client = clientInfo.Client; // Pobranie klienta
             NetworkStream stream = client.GetStream(); // Uzyskanie strumienia sieciowego
-            ReceiveKeyAndIV(stream, clientInfo.Aes); // Odbiór klucza AES i IV od klienta
 
             try
             {
                 while (true)
                 {
                     byte[] encryptedMessage = ReceiveData(stream); // Odbiór zaszyfrowanej wiadomości
-                    if (encryptedMessage == null)
+                    byte[] signature = ReceiveData(stream); // Odbiór podpisu wiadomości
+
+                    if (encryptedMessage == null || signature == null)
                     {
                         break; // Zakończenie nasłuchiwania jeśli klient rozłączył
                     }
 
                     string message = DecryptMessage(encryptedMessage, clientInfo.Aes); // Deszyfrowanie wiadomości
-                    Log($"Client {clientInfo.Id}: {message}"); // Dodanie informacji do logu
-                    byte[] response = EncryptMessage($"{clientInfo.Id}: {message}", clientInfo.Aes); // Szyfrowanie odpowiedzi
-                    BroadcastMessage(response, clientInfo); // Wysłanie odpowiedzi do wszystkich klientów
+                    byte[] hash = ComputeHash(message); // Obliczenie skrótu wiadomości
+
+                    Log($"Received message: {message}"); // Dodanie logu otrzymanej wiadomości
+                    Log($"Received signature: {Convert.ToBase64String(signature)}"); // Dodanie logu otrzymanego podpisu
+                    Log($"Computed hash: {Convert.ToBase64String(hash)}"); // Dodanie logu obliczonego hasha
+
+                    bool isValid = clientInfo.ClientRsa.VerifyHash(hash, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1); // Weryfikacja podpisu
+                    if (isValid)
+                    {
+                        Log($"Client {clientInfo.Id}: {message}"); // Dodanie informacji do logu
+                        byte[] response = EncryptMessage($"{clientInfo.Id}: {message}", clientInfo.Aes); // Szyfrowanie odpowiedzi
+                        byte[] responseSignature = SignMessage($"{clientInfo.Id}: {message}"); // Podpisanie odpowiedzi
+                        BroadcastMessage(response, responseSignature, clientInfo); // Wysłanie odpowiedzi do wszystkich klientów
+                    }
+                    else
+                    {
+                        Log("Received message with invalid signature."); // Informacja o błędnym podpisie
+                    }
                 }
             }
             catch (Exception ex)
@@ -146,7 +181,7 @@ namespace CryptoServer
             }
         }
 
-        private void BroadcastMessage(byte[] message, ClientInfo sender)
+        private void BroadcastMessage(byte[] message, byte[] signature, ClientInfo sender)
         {
             foreach (var clientInfo in clients) // Iteracja przez wszystkich klientów
             {
@@ -155,6 +190,7 @@ namespace CryptoServer
                     NetworkStream stream = clientInfo.Client.GetStream(); // Uzyskanie strumienia sieciowego
                     byte[] encryptedMessage = EncryptMessage(DecryptMessage(message, sender.Aes), clientInfo.Aes); // Szyfrowanie wiadomości dla każdego klienta
                     SendData(stream, encryptedMessage); // Wysłanie zaszyfrowanej wiadomości
+                    SendData(stream, signature); // Wysłanie podpisu
                     Log($"Broadcasting message to {clientInfo.Id}"); // Dodanie informacji do logu
                 }
             }
@@ -193,6 +229,20 @@ namespace CryptoServer
                     }
                 }
             }
+        }
+
+        private byte[] ComputeHash(string message)
+        {
+            using (SHA256 sha256 = SHA256.Create())
+            {
+                return sha256.ComputeHash(Encoding.UTF8.GetBytes(message));
+            }
+        }
+
+        private byte[] SignMessage(string message)
+        {
+            byte[] hash = ComputeHash(message);
+            return rsa.SignHash(hash, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         }
 
         private void SendData(NetworkStream stream, byte[] data)
@@ -256,5 +306,6 @@ namespace CryptoServer
         public TcpClient Client { get; set; } // Klient TCP
         public Aes Aes { get; set; } // AES do szyfrowania i deszyfrowania wiadomości
         public string Id { get; set; } // Identyfikator klienta
+        public RSA ClientRsa { get; set; } // Klucz publiczny klienta RSA
     }
 }
