@@ -22,8 +22,8 @@ namespace CryptoServer
         {
             InitializeComponent(); // Inicjalizacja komponentów GUI
             diffieHellman = new ECDiffieHellmanCng(); // Utworzenie instancji Diffie-Hellmana
-            diffieHellman.KeyDerivationFunction = ECDiffieHellmanKeyDerivationFunction.Hash;
-            diffieHellman.HashAlgorithm = CngAlgorithm.Sha256;
+            diffieHellman.KeyDerivationFunction = ECDiffieHellmanKeyDerivationFunction.Hash; // Ustawienie funkcji do wyprowadzania klucza
+            diffieHellman.HashAlgorithm = CngAlgorithm.Sha256; // Ustawienie algorytmu haszującego na SHA256
             rsa = RSA.Create(); // Utworzenie instancji RSA
             ServerIP.Text = GetLocalIPAddress(); // Wyświetlenie lokalnego adresu IP
             ServerPort.Text = "2137"; // Ustawienie domyślnego portu serwera
@@ -46,7 +46,7 @@ namespace CryptoServer
         private void StartServer()
         {
             int port = int.Parse(ServerPort.Text); // Pobranie portu z pola tekstowego
-            listener = new TcpListener(IPAddress.Any, port); // Utworzenie nasłuchiwacza TCP
+            listener = new TcpListener(IPAddress.Any, port); // Utworzenie nasłuchiwacza TCP na wszystkich interfejsach i podanym porcie
             listener.Start(); // Rozpoczęcie nasłuchiwania połączeń
             listenerThread = new Thread(ListenForClients); // Utworzenie wątku do nasłuchiwania klientów
             listenerThread.IsBackground = true; // Ustawienie wątku jako wątek w tle
@@ -97,8 +97,8 @@ namespace CryptoServer
 
         private void SendPublicKey(NetworkStream stream)
         {
-            byte[] publicKey = diffieHellman.PublicKey.ToByteArray();
-            SendData(stream, publicKey); // Wysłanie klucza publicznego
+            byte[] publicKey = diffieHellman.PublicKey.ToByteArray(); // Pobranie klucza publicznego Diffie-Hellmana jako tablicy bajtów
+            SendData(stream, publicKey); // Wysłanie klucza publicznego do klienta
             Log("Sent Diffie-Hellman public key to client"); // Dodanie informacji do logu
         }
 
@@ -109,25 +109,25 @@ namespace CryptoServer
             // Wygenerowanie wspólnego sekretu i użycie go do utworzenia klucza AES
             byte[] sharedSecret = diffieHellman.DeriveKeyMaterial(CngKey.Import(clientPublicKey, CngKeyBlobFormat.EccPublicBlob));
             clientInfo.Aes.Key = sharedSecret;
-            clientInfo.Aes.IV = new byte[clientInfo.Aes.BlockSize / 8]; // Można zmodyfikować, aby lepiej zabezpieczyć IV
+            clientInfo.Aes.IV = new byte[clientInfo.Aes.BlockSize / 8]; // Ustawienie IV (Initialization Vector) na odpowiednią długość (16 bajtów dla AES)
 
             Log($"Received Diffie-Hellman public key from client and generated shared secret. Client public key: {Convert.ToBase64String(clientPublicKey)}"); // Dodanie informacji do logu
         }
 
         private void SendRSAPublicKey(NetworkStream stream)
         {
-            string publicKeyXml = rsa.ToXmlString(false); // Eksportowanie tylko klucza publicznego
+            string publicKeyXml = rsa.ToXmlString(false); // Eksportowanie tylko klucza publicznego RSA w formacie XML
             byte[] publicKeyBytes = Encoding.UTF8.GetBytes(publicKeyXml); // Konwersja klucza publicznego do tablicy bajtów
-            SendData(stream, publicKeyBytes); // Wysłanie klucza publicznego
+            SendData(stream, publicKeyBytes); // Wysłanie klucza publicznego do klienta
             Log($"Sent RSA public key to client: {publicKeyXml}"); // Dodanie informacji do logu
         }
 
         private void ReceiveClientRsaPublicKey(NetworkStream stream, ClientInfo clientInfo)
         {
             byte[] rsaPublicKeyBytes = ReceiveData(stream); // Odbiór klucza publicznego klienta
-            string rsaPublicKeyXml = Encoding.UTF8.GetString(rsaPublicKeyBytes);
-            clientInfo.ClientRsa = RSA.Create();
-            clientInfo.ClientRsa.FromXmlString(rsaPublicKeyXml); // Zaimportowanie klucza publicznego RSA klienta
+            string rsaPublicKeyXml = Encoding.UTF8.GetString(rsaPublicKeyBytes); // Konwersja klucza publicznego do formatu XML
+            clientInfo.ClientRsa = RSA.Create(); // Utworzenie instancji RSA dla klienta
+            clientInfo.ClientRsa.FromXmlString(rsaPublicKeyXml); // Importowanie klucza publicznego RSA klienta
             Log($"Received RSA public key from client: {rsaPublicKeyXml}"); // Dodanie informacji do logu
         }
 
@@ -158,7 +158,7 @@ namespace CryptoServer
                     bool isValid = clientInfo.ClientRsa.VerifyHash(hash, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1); // Weryfikacja podpisu
                     if (isValid)
                     {
-                        Log($"Client {clientInfo.Id}: {message}"); // Dodanie informacji do logu
+                        Log($"Client {clientInfo.Id}: {message}"); // Dodanie informacji o poprawnej wiadomości do logu
                         byte[] response = EncryptMessage($"{clientInfo.Id}: {message}", clientInfo.Aes); // Szyfrowanie odpowiedzi
                         byte[] responseSignature = SignMessage($"{clientInfo.Id}: {message}"); // Podpisanie odpowiedzi
                         BroadcastMessage(response, responseSignature, clientInfo); // Wysłanie odpowiedzi do wszystkich klientów
@@ -176,7 +176,7 @@ namespace CryptoServer
             finally
             {
                 clients.Remove(clientInfo); // Usunięcie klienta z listy klientów
-                Log($"Client {clientInfo.Id} disconnected"); // Dodanie informacji do logu
+                Log($"Client {clientInfo.Id} disconnected"); // Dodanie informacji o rozłączeniu klienta do logu
                 client.Close(); // Zamknięcie połączenia z klientem
             }
         }
@@ -233,16 +233,16 @@ namespace CryptoServer
 
         private byte[] ComputeHash(string message)
         {
-            using (SHA256 sha256 = SHA256.Create())
+            using (SHA256 sha256 = SHA256.Create()) // Utworzenie instancji SHA256
             {
-                return sha256.ComputeHash(Encoding.UTF8.GetBytes(message));
+                return sha256.ComputeHash(Encoding.UTF8.GetBytes(message)); // Obliczenie i zwrócenie skrótu wiadomości
             }
         }
 
         private byte[] SignMessage(string message)
         {
-            byte[] hash = ComputeHash(message);
-            return rsa.SignHash(hash, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            byte[] hash = ComputeHash(message); // Obliczenie skrótu wiadomości
+            return rsa.SignHash(hash, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1); // Podpisanie skrótu wiadomości
         }
 
         private void SendData(NetworkStream stream, byte[] data)
