@@ -7,13 +7,14 @@
         <TextBox Name="ChatHistory" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" IsReadOnly="True" Margin="10,55,10,93"/>
         <TextBox Name="MessageBox" VerticalAlignment="Bottom" Height="45" Margin="28,0,119,10" KeyDown="MessageBox_KeyDown"/>
         <Button Content="Send" VerticalAlignment="Bottom" Height="30" Width="90" Margin="0,0,10,17" HorizontalAlignment="Right" Click="SendButton_Click" RenderTransformOrigin="0.1,-0.585"/>
-        <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Margin="28,0,-18,64">
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Margin="28,0,10,64">
             <TextBlock Text="IP:" VerticalAlignment="Center"/>
             <TextBox Name="ServerIP" Width="120" Margin="5,0"/>
             <TextBlock Text="Port:" VerticalAlignment="Center"/>
             <TextBox Name="ServerPort" Width="60" Margin="5,0"/>
             <Button Name="ConnectButton" Content="Connect" Click="ConnectButton_Click"/>
             <Button Name="DisconnectButton" Content="Disconnect" Click="DisconnectButton_Click" Margin="5,0,0,0" IsEnabled="False"/>
+            <CheckBox x:Name="ShowLogsCheckBox" Content="Show Logs" Checked="ShowLogsCheckBox_Checked" Unchecked="ShowLogsCheckBox_Unchecked"/>
         </StackPanel>
     </Grid>
 </Window>
