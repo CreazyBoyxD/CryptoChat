@@ -1,13 +1,15 @@
 # CryptoChat
 
-CryptoChat is a secure chat application using AES for message encryption and RSA for secure key exchange. This project consists of two main components: the client and the server, both implemented in C# using WPF for the GUI.
+CryptoChat is a secure chat application using AES for message encryption, Diffie-Hellman for secure key exchange, and RSA for message signing. This project consists of two main components: the client and the server, both implemented in C# using WPF for the GUI.
 
 ## Features
 
 - Secure communication using AES-256 for message encryption.
-- RSA encryption for secure exchange of AES keys.
+- Diffie-Hellman for secure exchange of AES keys.
+- RSA for signing and verifying messages.
 - Multi-client support on the server.
 - Simple GUI for both client and server.
+- Option to display detailed logs of the cryptographic operations.
 
 ## Getting Started
 
@@ -32,20 +34,21 @@ Open the solution file `CryptoChat.sln` in Visual Studio.
    1. Set the `CryptoServer` project as the startup project.
    2. Build and run the server.
    3. The server's IP address and port will be displayed. You can modify the port if needed.
-1. **Client:**
+2. **Client:**
    1. Set the `CryptoChat` project as the startup project.
    2. Build and run the client.
    3. Enter the server's IP address and port.
    4. Click "Connect" to establish a connection with the server.
+   5. Use the "Show Logs" checkbox to toggle detailed logs.
 
 ## How It Works
 
-### RSA Key Exchange
+### Diffie-Hellman Key Exchange
 
-- The server generates an RSA key pair (public and private keys).
-- The server sends the RSA public key to the client.
-- The client uses the RSA public key to encrypt its AES key and IV.
-- The server decrypts the AES key and IV using its RSA private key.
+- The server and client each generate a Diffie-Hellman public/private key pair.
+- The server sends its Diffie-Hellman public key to the client.
+- The client sends its Diffie-Hellman public key to the server.
+- Both the server and client use each other's public keys and their own private keys to compute a shared secret, which is used as the AES key.
 
 ### AES Message Encryption
 
@@ -53,22 +56,33 @@ Open the solution file `CryptoChat.sln` in Visual Studio.
 - Messages are encrypted on the client side before being sent to the server.
 - The server decrypts the received messages and can broadcast them to other connected clients.
 
+### RSA Message Signing
+
+- The server generates an RSA key pair (public and private keys).
+- The server sends its RSA public key to the client.
+- The client also generates an RSA key pair and sends its RSA public key to the server.
+- Messages are signed using the sender's RSA private key and verified using the sender's RSA public key.
+
 ## Code Overview
 
 ### Client
 
 - `ClientWindow.xaml.cs`:
   - Establishes connection to the server.
-  - Receives the RSA public key.
-  - Sends the encrypted AES key and IV.
-  - Encrypts and sends messages using AES.
-  - Listens for incoming messages from the server and decrypts them.
+  - Exchanges Diffie-Hellman public keys with the server.
+  - Computes the shared secret for AES encryption.
+  - Exchanges RSA public keys with the server.
+  - Encrypts and signs messages using AES and RSA.
+  - Listens for incoming messages from the server, verifies signatures, and decrypts them.
+  - Provides an option to show or hide detailed logs of cryptographic operations.
 
 ### Server
 
 - `ServerWindow.xaml.cs`:
   - Listens for incoming client connections.
-  - Sends the RSA public key to the client.
-  - Receives the encrypted AES key and IV from the client.
-  - Decrypts and stores the AES key and IV.
-  - Handles incoming messages from clients, decrypts them, and broadcasts them to other clients.
+  - Exchanges Diffie-Hellman public keys with clients.
+  - Computes the shared secret for AES encryption.
+  - Exchanges RSA public keys with clients.
+  - Decrypts and verifies incoming messages from clients.
+  - Signs and encrypts messages for clients.
+  - Broadcasts messages to other connected clients.
