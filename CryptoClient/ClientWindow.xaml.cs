@@ -203,7 +203,7 @@ namespace CryptoChat
                     bool isValid = serverRsa.VerifyHash(hash, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1); // Weryfikacja podpisu
                     if (isValid)
                     {
-                        Dispatcher.Invoke(() => AppendChatHistory($"Server: {message}\n")); // Dodanie wiadomości do historii czatu
+                        Dispatcher.Invoke(() => AppendChatHistory($"{message}\n")); // Dodanie wiadomości do historii czatu
                     }
                     else
                     {
